@@ -1,48 +1,144 @@
 <!DOCTYPE html>
-<html lang = "en">
+<html lang="en">
 <head>
-    <meta charset ="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sleep Tracker</title>
     <link rel="stylesheet" href="style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js"></script>
 </head>
-<body>    
-    <div class = "center"> 
-        <h1 id = "title" class = "">DREAMS</h1>
-        <p id = "info"><b>D</b>ata <b>R</b>etrieval and <b>E</b>valuation for <b>A</b>dvanced <b>M</b>onitoring of <b>S</b>leep
-            <br> Use our free tool to develop analyze you're sleeping movement, and determine how to improve this in the future.
-            <br> Learn how to start with our <a href = "/howto/">easy-to-follow howto</a>!
-        </p>
+<body>
+    <div class="center">
+        <h1 id="title">DREAMS</h1>
+        <p id="info"><b>D</b>ata <b>R</b>etrieval and <b>E</b>valuation for <b>A</b>dvanced <b>M</b>onitoring of <b>S</b>leep</p>
         <br>
-            <input type = "password" /> 
-        <div id = "chart-container">
+        <div id="chart-container">
             <button class="button start-button">Start Graphing</button>
             <button class="button stop-button">Stop Graphing</button>
-            <canvas id="chart" style="width: 100%; height: 500px;"></canvas> <!-- Increased height -->
+            <canvas id="chart" style="width: 100%; height: 500px;"></canvas>
             <button class="button clear-button">Reset Graph and ALL DATA</button>
             <button class="button end-button">End and Display Results</button>
         </div>
-        <br><br><br><br><br><br><br><br>
         <div id="wrapper">
             <svg id="meter">
-                <circle id="outline_curves" class="circle outline"  cx="50%" cy="50%">
-                </circle>
-                <circle id="low" class="circle range" cx="50%" cy="50%" stroke="#E04644">
-                </circle>
-                <circle id="avg" class="circle range" cx="50%" cy="50%" stroke="#FDE47F">
-                </circle>
-                <circle id="high" class="circle range" cx="50%" cy="50%" stroke="#39E75F">
-                </circle>
-                <circle id="mask" class="circle" cx="50%" cy="50%" >
-                </circle>
-                <circle id="outline_ends" class="circle outline" cx="50%" cy="50%">
-                </circle>
+                <circle id="outline_curves" class="circle outline" cx="50%" cy="50%"></circle>
+                <circle id="low" class="circle range" cx="50%" cy="50%" stroke="#E04644"></circle>
+                <circle id="avg" class="circle range" cx="50%" cy="50%" stroke="#FDE47F"></circle>
+                <circle id="high" class="circle range" cx="50%" cy="50%" stroke="#39E75F"></circle>
+                <circle id="mask" class="circle" cx="50%" cy="50%"></circle>
+                <circle id="outline_ends" class="circle outline" cx="50%" cy="50%"></circle>
             </svg>
-            <p id="lbl" id="value" for="">Your sleep score is <b>0%</b>.</p>
+            <p id="lbl">Your sleep score is <b>0%</b>.</p>
         </div>
     </div>
+    <script>
+        let xValues = [];
+        let absAccel = [];
+        let fetchDataInterval = null;
+        let sum = 0.0;
 
-    <script src="script.js"></script>
+        const r = 240;
+        const cf = 2 * Math.PI * r;
+        const semi_cf = cf / 2;
+        const semi_cf_1by3 = semi_cf / 3;
+        const semi_cf_2by3 = semi_cf_1by3 * 2;
+
+        document.querySelector('#outline_curves').setAttribute('stroke-dasharray', semi_cf + ',' + cf);
+        document.querySelector('#low').setAttribute('stroke-dasharray', semi_cf + ',' + cf);
+        document.querySelector('#avg').setAttribute('stroke-dasharray', semi_cf_2by3 + ',' + cf);
+        document.querySelector('#high').setAttribute('stroke-dasharray', semi_cf_1by3 + ',' + cf);
+        document.querySelector('#outline_ends').setAttribute('stroke-dasharray', 2 + ',' + (semi_cf - 2));
+        document.querySelector('#mask').setAttribute('stroke-dasharray', semi_cf + ',' + cf);
+
+        const slider = document.querySelector('#slider');
+        const lbl = document.querySelector("#lbl");
+        const mask = document.querySelector('#mask');
+
+        function range_change_event(x) {
+            const percent = x;
+            const meter_value = semi_cf - ((percent * semi_cf) / 100);
+            mask.setAttribute('stroke-dasharray', meter_value + ',' + cf);
+            lbl.innerHTML = "Your sleep score is <b>" + percent + '%</b>.';
+        }
+
+        const chart = new Chart(document.getElementById("chart"), {
+            type: "line",
+            data: {
+                labels: xValues,
+                datasets: [{
+                    label: 'Acc',
+                    data: absAccel,
+                    borderColor: "red",
+                    fill: false
+                }]
+            },
+            options: {
+                legend: { display: true }
+            }
+        });
+
+        async function fetchDataAndUpdateChart() {
+            const url = 'http://172.20.10.1/get?acc&accX&accY&accZ'; // Update with actual Phyphox URL
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+
+                const accData = data.buffer.acc.buffer[0];
+                xValues.push(new Date().toLocaleTimeString());
+                absAccel.push(accData);
+
+                if (xValues.length > 84600) {
+                    xValues.shift();
+                    absAccel.shift();
+                }
+
+                chart.update();
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        }
+
+        function calculateSleepScore() {
+            const total = absAccel.reduce((a, b) => a + b, 0);
+            const average = total / absAccel.length;
+            const sleepScore = 100 - (average * 10);
+            return Math.max(0, Math.min(100, sleepScore));
+        }
+
+        async function updateChartWithData() {
+            clearInterval(fetchDataInterval);
+            fetchDataInterval = null;
+            const sleepScore = calculateSleepScore();
+            range_change_event(sleepScore);
+            lbl.innerHTML += `<br><br>Your sleep score was calculated based on your average movement.`;
+        }
+
+        document.querySelector('.clear-button').addEventListener('click', () => {
+            xValues.length = 0;
+            absAccel.length = 0;
+            clearInterval(fetchDataInterval);
+            fetchDataInterval = null;
+            chart.update();
+            console.log('Data cleared and chart updated');
+        });
+
+        document.querySelector('.start-button').addEventListener('click', () => {
+            if (!fetchDataInterval) {
+                fetchDataInterval = setInterval(fetchDataAndUpdateChart, 1000);
+                console.log('Data fetching started');
+            }
+        });
+
+        document.querySelector('.stop-button').addEventListener('click', () => {
+            clearInterval(fetchDataInterval);
+            fetchDataInterval = null;
+            console.log('Data fetching stopped');
+        });
+
+        document.querySelector('.end-button').addEventListener('click', async () => {
+            await updateChartWithData();
+        });
+    </script>
 </body>
 </html>
